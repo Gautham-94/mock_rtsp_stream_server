@@ -1,0 +1,5 @@
+video_dir: /Users/gauthamkrishna/Documents/Projects/nvr/frigate_nvr/mock_cameras/videos
+cameras:
+  - name: front_door       # matches front_door.mp4 in video_dir
+  - name: backyard         # matches backyard.mp4 in video_dir
+  - name: garage           # matches garage.mp4 in video_dir -- proves N=3 generalizes, not hardcoded to 2

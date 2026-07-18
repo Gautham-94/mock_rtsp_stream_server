@@ -1,0 +1,8 @@
+# Minimal by design -- this app does NOT need onvif-zeep-async (that's the CONSUMING
+# side, used by mirage itself; see mock_cameras/onvif_server.py for the hand-rolled
+# SOAP responses this app sends instead) nor mirage's own dependency tree (fastapi,
+# onnxruntime, opencv, ...) -- see mock_cameras/go2rtc.py's module docstring for why
+# the go2rtc download/process helpers are a small vendored copy rather than an import
+# of the mirage package.
+aiohttp>=3.9
+PyYAML>=6.0
