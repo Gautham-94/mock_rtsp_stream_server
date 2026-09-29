@@ -57,7 +57,7 @@ SOAP services, and WS-Discovery announcements as there are camera entries.
 One-time setup:
 
 ```
-cd /Users/gauthamkrishna/Documents/Projects/nvr/frigate_nvr/mock_cameras
+cd mock_cameras
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
