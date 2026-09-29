@@ -7,7 +7,16 @@ camera hardware on the network.
 It runs, for N cameras configured in `config.yaml`:
 
 - **go2rtc** (mirage's own vendored RTSP restreaming binary) serving each camera's
-  video file as a looping RTSP stream at `rtsp://127.0.0.1:<rtsp-port>/<camera-name>`
+  video file as a looping RTSP stream at `rtsp://<host>:<rtsp-port>/<camera-name>`.
+  Each stream is always on (fed by a supervised `ffmpeg` publisher per camera, not
+  started on demand), so it keeps playing whether or not anyone is watching. Each
+  video is first re-encoded once into a camera-like H.264 stream (no B-frames, 1s
+  keyframe interval, constant frame rate, capped bitrate, audio stripped) to avoid stutter in VMS
+  clients; re-encodes are cached under `.cache/prepared/` and redone only when the
+  source file changes (so the first start with a new video takes a minute or two)
+- a low-res **substream** per camera at `rtsp://<host>:<rtsp-port>/<camera-name>_sub`
+  (320x180, 15fps, ~300 kbps) for VMS live-view grids / video walls, prepared and
+  published the same way as the main stream
 - a **WS-Discovery** UDP multicast responder (the same protocol real ONVIF cameras use
   to announce themselves), so mirage's wizard finds these cameras automatically, same
   as it would find a real camera on the LAN

@@ -105,24 +105,15 @@ def ensure_go2rtc_binary(bin_dir: str) -> str:
     return str(dest)
 
 
-# Name of the custom ffmpeg input template (added to the generated go2rtc.yaml's own
-# `ffmpeg:` config section) that makes local video files loop forever at real-time
-# pace. See stream_source_for()'s docstring for why this has to be a NAMED template
-# rather than an inline literal override.
-_LOOP_INPUT_TEMPLATE_NAME = "mock_loop"
-
-
 def build_go2rtc_config(
-    streams: dict[str, str],
+    streams: dict[str, str | None],
     rtsp_port: int,
     api_port: int,
 ) -> dict:
-    """Each stream entry loops its source video file forever via ffmpeg, mirroring
-    mirage/scripts/run_test_stream.sh's `-re -stream_loop -1 -i <path>` pattern (real-
-    time pacing + infinite loop so the RTSP session never runs out of frames). go2rtc's
-    own `ffmpeg:` source-string syntax (documented in go2rtc's README) lets us hand it
-    an ffmpeg CLI fragment directly instead of writing a wrapper shell script per
-    camera.
+    """Streams are declared with empty (None) sources: go2rtc then accepts an RTSP
+    publish to that name, which is how mock_cameras.publisher.CameraPublisher feeds
+    each camera as an always-on loop (see publisher.py's module docstring for why this
+    replaced go2rtc's own on-demand `ffmpeg:` sources).
     """
     return {
         "streams": streams,
@@ -131,49 +122,10 @@ def build_go2rtc_config(
         # webrtc/srtp not needed for this tool's purpose (ONVIF discovery + RTSP
         # playback testing only); omit to avoid binding extra ports.
         "log": {"format": "text", "level": "warn"},
-        # Custom named ffmpeg input template -- see stream_source_for()'s docstring.
-        "ffmpeg": {_LOOP_INPUT_TEMPLATE_NAME: "-re -stream_loop -1 -i {input}"},
     }
 
 
-def stream_source_for(video_path: Path) -> str:
-    """go2rtc "ffmpeg:" source syntax: `ffmpeg:<input>#<param>=<value>#<param>=<value>`.
-
-    Confirmed directly against go2rtc source (internal/ffmpeg/ffmpeg.go's `defaults`
-    map and `inputTemplate()`/`parseArgs()`), not guessed -- and confirmed by actually
-    running go2rtc locally against several candidate source strings (an inline literal
-    override with embedded spaces silently produced zero media tracks -- "streams:
-    unknown error" -- even though `internal/ffmpeg/README.md` documents
-    `#input=-timeout {timeout} -i {input}` as valid syntax; a NAMED custom template
-    added to the config's own `ffmpeg:` section and referenced by name, e.g.
-    `#input=mock_loop`, works reliably and was verified end-to-end with ffprobe):
-
-      - go2rtc's *built-in* `"file"` input template is just `-re -i {input}` -- it does
-        NOT loop (confirmed reading the `defaults["file"]` entry directly). Since mock
-        cameras need to serve an RTSP stream indefinitely (real cameras never run out
-        of frames), we need `-stream_loop -1` too, matching
-        mirage/scripts/run_test_stream.sh's own `-re -stream_loop -1 -i <path>` pattern.
-      - Rather than passing that literal template inline via `#input=-re -stream_loop
-        -1 -i {input}` (which the README shows as valid but which empirically failed
-        here), the template is instead registered ONCE under a name
-        (`_LOOP_INPUT_TEMPLATE_NAME`, "mock_loop") in the generated go2rtc.yaml's own
-        `ffmpeg:` section (see build_go2rtc_config), and each stream source just
-        references it by name: `#input=mock_loop`. This sidesteps whatever go2rtc-side
-        parsing quirk rejects the inline spaces-containing form, and also matches the
-        README's own primary documented pattern (`ffmpeg: {mycodec: "...", myinput:
-        "..."}` config block + `#input=<name>` reference).
-      - `#video=copy#audio=copy` keeps both streams uncopied/untranscoded, matching how
-        real ONVIF cameras' GetStreamUri output is consumed as-is.
-
-    NOTE: go2rtc splits the source string on `#` and treats each `#`-segment as its own
-    `key=value` query param (see `streams.ParseQuery` usage in parseArgs), so this
-    string must not contain literal `#`/`&` itself; video file paths are trusted local
-    config here, not attacker input.
-    """
-    return f"ffmpeg:{video_path}#input={_LOOP_INPUT_TEMPLATE_NAME}#video=copy#audio=copy"
-
-
-def write_go2rtc_config(path: str, streams: dict[str, str], rtsp_port: int, api_port: int) -> str:
+def write_go2rtc_config(path: str, streams: dict[str, str | None], rtsp_port: int, api_port: int) -> str:
     payload = build_go2rtc_config(streams, rtsp_port=rtsp_port, api_port=api_port)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:

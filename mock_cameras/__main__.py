@@ -26,10 +26,10 @@ from mock_cameras.config import AppConfig, ConfigError, CameraSpec, load_config
 from mock_cameras.go2rtc import (
     Go2rtcProcess,
     ensure_go2rtc_binary,
-    stream_source_for,
     write_go2rtc_config,
 )
 from mock_cameras.onvif_server import CameraOnvifInfo, build_camera_app
+from mock_cameras.publisher import SUBSTREAM_SUFFIX, VARIANTS, CameraPublisher, prepare_video
 from mock_cameras.wsdiscovery import DiscoverableCamera, run_wsdiscovery_responder
 
 logger = logging.getLogger("mock_cameras")
@@ -60,6 +60,7 @@ class MockCamerasApp:
         self.config = config
         self.args = args
         self.go2rtc_process: Go2rtcProcess | None = None
+        self._publishers: list[CameraPublisher] = []
         self._runners: list[web.AppRunner] = []
         self._wsdiscovery_transport = None
         self._stop_event = asyncio.Event()
@@ -77,16 +78,29 @@ class MockCamerasApp:
         )
 
     async def start(self) -> None:
-        await self._start_go2rtc()
+        prepared = await self._prepare_videos()
+        await self._start_go2rtc(list(prepared))
+        self._start_publishers(prepared)
         await self._start_wsdiscovery()
         await self._start_onvif_servers()
         self._log_summary()
 
-    async def _start_go2rtc(self) -> None:
+    async def _prepare_videos(self) -> dict[str, Path]:
+        """Returns {rtsp stream name: prepared video}, one main + one substream per camera."""
+        # Sequential on purpose: each libx264 encode already uses every core.
+        cache_dir = Path(self.args.cache_dir) / "prepared"
+        prepared: dict[str, Path] = {}
+        for camera in self.config.cameras:
+            for variant in VARIANTS:
+                stream = camera.name + variant.suffix
+                prepared[stream] = await prepare_video(stream, camera.video_path, cache_dir, variant)
+        return prepared
+
+    async def _start_go2rtc(self, stream_names: list[str]) -> None:
         binary_path = ensure_go2rtc_binary(self.args.bin_dir)
-        streams = {
-            camera.name: stream_source_for(camera.video_path) for camera in self.config.cameras
-        }
+        # Empty sources: each stream is fed by our own always-on publisher (see
+        # publisher.py) pushing into go2rtc, not by an on-demand go2rtc producer.
+        streams: dict[str, str | None] = {name: None for name in stream_names}
         config_path = str(Path(self.args.cache_dir) / "go2rtc.yaml")
         write_go2rtc_config(
             config_path, streams, rtsp_port=self.args.rtsp_port, api_port=self.args.go2rtc_api_port
@@ -99,6 +113,12 @@ class MockCamerasApp:
         await asyncio.sleep(0.5)
         if not self.go2rtc_process.is_alive():
             raise RuntimeError("go2rtc exited immediately after start -- check port conflicts")
+
+    def _start_publishers(self, prepared: dict[str, Path]) -> None:
+        for stream, video_path in prepared.items():
+            publisher = CameraPublisher(stream, video_path, self.args.rtsp_port)
+            publisher.start()
+            self._publishers.append(publisher)
 
     async def _start_wsdiscovery(self) -> None:
         discoverable = [
@@ -129,10 +149,12 @@ class MockCamerasApp:
         for camera in self.config.cameras:
             onvif_port = self.onvif_ports[camera.name]
             logger.info(
-                "  %-20s rtsp://127.0.0.1:%d/%s   onvif http://127.0.0.1:%d/onvif/device_service   video=%s",
+                "  %-20s rtsp://127.0.0.1:%d/%s (sub: /%s%s)   onvif http://127.0.0.1:%d/onvif/device_service   video=%s",
                 camera.name,
                 self.args.rtsp_port,
                 camera.name,
+                camera.name,
+                SUBSTREAM_SUFFIX,
                 onvif_port,
                 camera.video_path,
             )
@@ -147,6 +169,8 @@ class MockCamerasApp:
             self._wsdiscovery_transport.close()
         for runner in self._runners:
             await runner.cleanup()
+        for publisher in self._publishers:
+            await publisher.stop()
         if self.go2rtc_process is not None:
             self.go2rtc_process.stop()
         logger.info("shutdown complete")
