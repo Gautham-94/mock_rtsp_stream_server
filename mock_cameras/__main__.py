@@ -7,8 +7,9 @@ Spawns, for N configured cameras:
   - N separate aiohttp ONVIF SOAP HTTP servers (onvif_server.py), one port each
 
 All in one asyncio event loop, per the task spec ("one asyncio event loop is fine").
-Graceful shutdown on SIGINT/SIGTERM tears down go2rtc (SIGTERM->SIGKILL escalation,
-see go2rtc.py) and stops all aiohttp runners/the WS-Discovery transport.
+Graceful shutdown on SIGINT/SIGTERM tears down go2rtc (process-group SIGTERM->SIGKILL
+on POSIX, terminate->kill on Windows; see go2rtc.py) and stops all aiohttp
+runners/the WS-Discovery transport.
 """
 
 from __future__ import annotations
@@ -192,8 +193,7 @@ async def _async_main(args: argparse.Namespace) -> int:
     app = MockCamerasApp(config, args)
 
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, app.request_stop)
+    _install_signal_handlers(app, loop)
 
     try:
         await app.start()
@@ -205,6 +205,19 @@ async def _async_main(args: argparse.Namespace) -> int:
     await app.wait_for_stop()
     await app.stop()
     return 0
+
+
+def _install_signal_handlers(app: MockCamerasApp, loop: asyncio.AbstractEventLoop) -> None:
+    if sys.platform == "win32":
+        def handle_signal(_signum: int, _frame: object) -> None:
+            loop.call_soon_threadsafe(app.request_stop)
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, handle_signal)
+        return
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, app.request_stop)
 
 
 def main(argv: list[str] | None = None) -> int:

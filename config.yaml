@@ -1,7 +1,7 @@
-video_dir: /Users/gauthamkrishna/Documents/Projects/nvr/frigate_nvr/mock_cameras/videos
+video_dir: videos
 cameras:
-  - name: front_door       # matches front_door.mp4 in video_dir
-  - name: park1            # trail camera by the river (720p)
-  - name: park2            # spying on wildlife (1080p)
-  - name: park3            # leopard camera-trapping (720p)
-  - name: park4            # forest wallow, Czechia (720p)
+  - name: front_door # matches front_door.mp4 in video_dir
+  - name: park1 # trail camera by the river (720p)
+  - name: park2 # spying on wildlife (1080p)
+  - name: park3 # leopard camera-trapping (720p)
+  - name: park4 # forest wallow, Czechia (720p)

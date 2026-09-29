@@ -36,10 +36,10 @@ are a small vendored copy rather than a dependency on mirage itself).
 ```yaml
 video_dir: /path/to/videos
 cameras:
-  - name: front_door       # matches front_door.mp4 in video_dir
-  - name: backyard         # matches backyard.mp4 in video_dir
-    path: /absolute/override/path.mp4   # optional: explicit path instead of video_dir/<name>.<ext>
-  - name: garage           # a third camera -- N generalizes to any number, not hardcoded
+  - name: front_door # matches front_door.mp4 in video_dir
+  - name: backyard # matches backyard.mp4 in video_dir
+    path: /absolute/override/path.mp4 # optional: explicit path instead of video_dir/<name>.<ext>
+  - name: garage # a third camera -- N generalizes to any number, not hardcoded
 ```
 
 - `video_dir`: directory searched for `<name>.mp4` (also tries `.mkv`/`.mov`/`.avi`) when
@@ -53,6 +53,27 @@ Add or remove entries freely -- the app spins up exactly as many go2rtc streams,
 SOAP services, and WS-Discovery announcements as there are camera entries.
 
 ## Running it
+
+### Windows (PowerShell)
+
+Install Python 3.12 or newer and FFmpeg, ensuring `ffmpeg.exe` is available on `PATH`.
+For example, FFmpeg can be installed with `winget install --id Gyan.FFmpeg.Shared --exact`.
+Then, from this directory:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m mock_cameras --config config.yaml
+```
+
+The app downloads the matching Windows go2rtc executable on first run. If PowerShell
+blocks virtual-environment activation, run `Set-ExecutionPolicy -Scope Process Bypass`
+in that PowerShell window, then activate the environment again. Windows Firewall may
+need to allow Python and go2rtc for WS-Discovery; if multicast discovery is blocked,
+use the RTSP URL printed at startup to add the camera manually.
+
+### macOS and Linux
 
 One-time setup:
 
@@ -91,11 +112,11 @@ mock_cameras running -- 3 camera(s):
 WS-Discovery responder active on udp 239.255.255.250:3702
 ```
 
-Stop with Ctrl+C -- shutdown is graceful (SIGTERM, escalating to SIGKILL after a
-timeout, tears down go2rtc; all HTTP/UDP listeners are closed cleanly).
+Stop with Ctrl+C -- shutdown is graceful (go2rtc is terminated and escalated to a
+forced kill after a timeout; all HTTP/UDP listeners are closed cleanly).
 
 Useful flags (see `python3 -m mock_cameras --help`): `--rtsp-port` (default 8554),
-`--onvif-base-port` (default 8081, camera *i* gets `base+i`), `--go2rtc-api-port`
+`--onvif-base-port` (default 8081, camera _i_ gets `base+i`), `--go2rtc-api-port`
 (default 1985 -- deliberately different from mirage's own go2rtc on 1984, so both can
 run side by side on one machine), `-v` for debug logging.
 

@@ -140,7 +140,7 @@ class CameraPublisher:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
+                **({"start_new_session": True} if os.name != "nt" else {}),
             )
             logger.debug("camera %r: publisher started (pid=%d)", self.name, self._proc.pid)
             _, stderr = await self._proc.communicate()

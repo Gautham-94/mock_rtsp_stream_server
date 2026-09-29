@@ -50,6 +50,11 @@ _ASSET_MAP: dict[tuple[str, str], tuple[str, bool]] = {
     ("linux", "x86_64"): ("go2rtc_linux_amd64", False),
     ("linux", "aarch64"): ("go2rtc_linux_arm64", False),
     ("linux", "arm64"): ("go2rtc_linux_arm64", False),
+    ("windows", "amd64"): ("go2rtc_win64.zip", True),
+    ("windows", "arm64"): ("go2rtc_win_arm64.zip", True),
+    ("windows", "x86"): ("go2rtc_win32.zip", True),
+    ("windows", "i386"): ("go2rtc_win32.zip", True),
+    ("windows", "i686"): ("go2rtc_win32.zip", True),
 }
 
 
@@ -70,7 +75,8 @@ def _resolve_asset() -> tuple[str, bool]:
 
 
 def _binary_path(bin_dir: str) -> Path:
-    return Path(bin_dir) / "go2rtc"
+    filename = "go2rtc.exe" if platform.system().lower() == "windows" else "go2rtc"
+    return Path(bin_dir) / filename
 
 
 def ensure_go2rtc_binary(bin_dir: str) -> str:
@@ -100,7 +106,8 @@ def ensure_go2rtc_binary(bin_dir: str) -> str:
     else:
         dest.write_bytes(payload)
 
-    dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    if platform.system().lower() != "windows":
+        dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     logger.info("go2rtc binary ready at %s", dest)
     return str(dest)
 
@@ -134,9 +141,10 @@ def write_go2rtc_config(path: str, streams: dict[str, str | None], rtsp_port: in
 
 
 class Go2rtcProcess:
-    """Launches and supervises the go2rtc binary as a subprocess. Shutdown pattern
-    (SIGTERM to the process group, wait, SIGKILL on timeout) copied from
-    mirage/mirage/go2rtc/process.py::Go2rtcProcess.stop.
+    """Launches and supervises the go2rtc binary as a subprocess. POSIX shutdown
+    (SIGTERM to the process group, wait, SIGKILL on timeout) follows
+    mirage/mirage/go2rtc/process.py::Go2rtcProcess.stop; Windows terminates the child
+    process directly and kills it if it does not exit before the timeout.
     """
 
     def __init__(self, binary_path: str, config_path: str) -> None:
@@ -150,7 +158,7 @@ class Go2rtcProcess:
             stdout=sp.DEVNULL,
             stderr=sp.DEVNULL,
             stdin=sp.DEVNULL,
-            start_new_session=True,
+            **({} if platform.system().lower() == "windows" else {"start_new_session": True}),
         )
         logger.info("go2rtc started (pid=%d)", self._proc.pid)
 
@@ -159,6 +167,19 @@ class Go2rtcProcess:
 
     def stop(self, timeout: float = 10.0) -> None:
         if self._proc is None:
+            return
+        if platform.system().lower() == "windows":
+            if self._proc.poll() is None:
+                self._proc.terminate()
+                try:
+                    self._proc.wait(timeout=timeout)
+                except sp.TimeoutExpired:
+                    self._proc.kill()
+                    try:
+                        self._proc.wait(timeout=5)
+                    except sp.TimeoutExpired:
+                        pass
+            logger.info("go2rtc stopped")
             return
         try:
             os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
